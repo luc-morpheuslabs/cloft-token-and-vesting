@@ -7,16 +7,16 @@ async function main() {
 
   const Token = await ethers.getContractFactory("Token");
   const token = await Token.deploy(
-    "Test Token",
-    "TT",
-    "1000000000000000000000000"
+    "cloft.com",
+    "CLOFT",
+    "840000000000000000000000000"
   );
 
   console.log("Token address:", token.address);
 
-  const TokenVesting = await ethers.getContractFactory("TokenVesting");
-  const tokenVesting = await TokenVesting.deploy(token.address);
-  console.log("TokenVesting address:", tokenVesting.address);
+  // const TokenVesting = await ethers.getContractFactory("TokenVesting");
+  // const tokenVesting = await TokenVesting.deploy(token.address);
+  // console.log("TokenVesting address:", tokenVesting.address);
 }
 
 main()

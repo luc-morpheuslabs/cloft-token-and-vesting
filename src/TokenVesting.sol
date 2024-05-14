@@ -1,17 +1,20 @@
 // contracts/TokenVesting.sol
 // SPDX-License-Identifier: Apache-2.0
-pragma solidity ^0.8.19;
+pragma solidity 0.8.19;
 
 // OpenZeppelin dependencies
-import {ERC20} from "solmate/tokens/ERC20.sol";
-import {Owned} from "solmate/auth/Owned.sol";
-import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
-import {ReentrancyGuard} from "solmate/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
  * @title TokenVesting
  */
-contract TokenVesting is Owned, ReentrancyGuard {
+contract TokenVesting is Ownable, ReentrancyGuard {
+
+    using SafeERC20 for IERC20;
+
     struct VestingSchedule {
         bool initialized;
         // beneficiary of tokens after they are released
@@ -26,6 +29,8 @@ contract TokenVesting is Owned, ReentrancyGuard {
         uint256 slicePeriodSeconds;
         // whether or not the vesting is revocable
         bool revocable;
+        // TGE amount when create vesting
+        uint256 tgeAmount;
         // total amount of tokens to be released at the end of the vesting
         uint256 amountTotal;
         // amount of tokens released
@@ -55,7 +60,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
      * @dev Creates a vesting contract.
      * @param token_ address of the ERC20 token contract
      */
-    constructor(address token_) Owned(msg.sender) {
+    constructor(address token_) {
         // Check that the token address is not 0x0.
         require(token_ != address(0x0));
         // Set the token address.
@@ -74,6 +79,24 @@ contract TokenVesting is Owned, ReentrancyGuard {
     fallback() external payable {}
 
     /**
+        @notice Emergency transfer `token` to `owner`
+        @dev  Caller must be Owner
+
+        @param	token              Address of token contract (Native Coin = 0x00)
+        @param	amount             Amount of token that accidently send to the smart contract
+        Note: 
+        - This function allows `owner` can withdraw any tokens that mistakenly sent to this contract
+        - Or withdraw an amount of any Token that a Swap Contract is currently holding
+        - Two types of token can be withdrawed: Native Coin, and ERC-20
+    */
+    function emergency(address token, uint256 amount) external onlyOwner {
+        require(address(_token) != token, "Vesting token could not be withdrawn by emergency method");
+        address receiver = owner();
+        if (token == address(0)) Address.sendValue(payable(receiver), amount);
+        else IERC20(token).safeTransfer(receiver, amount);
+    }
+
+    /**
      * @notice Creates a new vesting schedule for a beneficiary.
      * @param _beneficiary address of the beneficiary to whom vested tokens are transferred
      * @param _start start time of the vesting period
@@ -81,7 +104,8 @@ contract TokenVesting is Owned, ReentrancyGuard {
      * @param _duration duration in seconds of the period in which the tokens will vest
      * @param _slicePeriodSeconds duration of a slice period for the vesting in seconds
      * @param _revocable whether the vesting is revocable or not
-     * @param _amount total amount of tokens to be released at the end of the vesting
+     * @param _tgeAmount the amount send to beneficiary when begore vesting schedule
+     * @param _totalAmount total amount of tokens to be released at the end of the vesting
      */
     function createVestingSchedule(
         address _beneficiary,
@@ -90,14 +114,20 @@ contract TokenVesting is Owned, ReentrancyGuard {
         uint256 _duration,
         uint256 _slicePeriodSeconds,
         bool _revocable,
-        uint256 _amount
+        uint256 _tgeAmount,
+        uint256 _totalAmount
     ) external onlyOwner {
         require(
-            getWithdrawableAmount() >= _amount,
+            getWithdrawableAmount() >= _totalAmount + _tgeAmount,
             "TokenVesting: cannot create vesting schedule because not sufficient tokens"
         );
+        require(
+            _totalAmount > _tgeAmount,
+            "TokenVesting: _tgeAmount must lesser than _totalAmount"
+        );
+
         require(_duration > 0, "TokenVesting: duration must be > 0");
-        require(_amount > 0, "TokenVesting: amount must be > 0");
+        require(_totalAmount > 0, "TokenVesting: amount must be > 0");
         require(
             _slicePeriodSeconds >= 1,
             "TokenVesting: slicePeriodSeconds must be >= 1"
@@ -115,11 +145,16 @@ contract TokenVesting is Owned, ReentrancyGuard {
             _duration,
             _slicePeriodSeconds,
             _revocable,
-            _amount,
+            _tgeAmount,
+            _totalAmount,
             0,
             false
         );
-        vestingSchedulesTotalAmount = vestingSchedulesTotalAmount + _amount;
+
+        // perform transfer tgeAmount
+        SafeERC20.safeTransfer(_token, _beneficiary, _tgeAmount);
+        
+        vestingSchedulesTotalAmount = vestingSchedulesTotalAmount + _totalAmount;
         vestingSchedulesIds.push(vestingScheduleId);
         uint256 currentVestingCount = holdersVestingCount[_beneficiary];
         holdersVestingCount[_beneficiary] = currentVestingCount + 1;
@@ -161,7 +196,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
         /*
          * @dev Replaced owner() with msg.sender => address of WITHDRAWER_ROLE
          */
-        SafeTransferLib.safeTransfer(_token, msg.sender, amount);
+        SafeERC20.safeTransfer(_token, msg.sender, amount);
     }
 
     /**
@@ -178,7 +213,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
         ];
         bool isBeneficiary = msg.sender == vestingSchedule.beneficiary;
 
-        bool isReleasor = (msg.sender == owner);
+        bool isReleasor = (msg.sender == owner());
         require(
             isBeneficiary || isReleasor,
             "TokenVesting: only beneficiary and owner can release vested tokens"
@@ -193,7 +228,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
             vestingSchedule.beneficiary
         );
         vestingSchedulesTotalAmount = vestingSchedulesTotalAmount - amount;
-        SafeTransferLib.safeTransfer(_token, beneficiaryPayable, amount);
+        SafeERC20.safeTransfer(_token, beneficiaryPayable, amount);
     }
 
     /**
@@ -202,7 +237,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
      */
     function getVestingSchedulesCountByBeneficiary(
         address _beneficiary
-    ) external view returns (uint256) {
+    ) public view returns (uint256) {
         return holdersVestingCount[_beneficiary];
     }
 
@@ -212,7 +247,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
      */
     function getVestingIdAtIndex(
         uint256 index
-    ) external view returns (bytes32) {
+    ) public view returns (bytes32) {
         require(
             index < getVestingSchedulesCount(),
             "TokenVesting: index out of bounds"
@@ -227,7 +262,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
     function getVestingScheduleByAddressAndIndex(
         address holder,
         uint256 index
-    ) external view returns (VestingSchedule memory) {
+    ) public view returns (VestingSchedule memory) {
         return
             getVestingSchedule(
                 computeVestingScheduleIdForAddressAndIndex(holder, index)
@@ -238,14 +273,14 @@ contract TokenVesting is Owned, ReentrancyGuard {
      * @notice Returns the total amount of vesting schedules.
      * @return the total amount of vesting schedules
      */
-    function getVestingSchedulesTotalAmount() external view returns (uint256) {
+    function getVestingSchedulesTotalAmount() public view returns (uint256) {
         return vestingSchedulesTotalAmount;
     }
 
     /**
      * @dev Returns the address of the ERC20 token managed by the vesting contract.
      */
-    function getToken() external view returns (address) {
+    function getToken() public view returns (address) {
         return address(_token);
     }
 
@@ -264,7 +299,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
     function computeReleasableAmount(
         bytes32 vestingScheduleId
     )
-        external
+        public
         view
         onlyIfVestingScheduleNotRevoked(vestingScheduleId)
         returns (uint256)
@@ -311,7 +346,7 @@ contract TokenVesting is Owned, ReentrancyGuard {
      */
     function getLastVestingScheduleForHolder(
         address holder
-    ) external view returns (VestingSchedule memory) {
+    ) public view returns (VestingSchedule memory) {
         return
             vestingSchedules[
                 computeVestingScheduleIdForAddressAndIndex(

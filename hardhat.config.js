@@ -54,6 +54,13 @@ module.exports = {
   networks: {
     mainnet: mainnetNetworkConfig(),
     goerli: goerliNetworkConfig(),
+    polygon: polygonNetworkConfig(),
+    // polygon: {
+    //   url: process.env.POLYGON_PROVIDER || "",
+    //   accounts: process.env.MAINNET_DEPLOYER !== undefined ? [process.env.MAINNET_DEPLOYER] : [],
+    //   chainId: 137,
+    //   timeout: 900000
+    // },
   },
   abiExporter: {
     path: "./build/abi",
@@ -73,6 +80,15 @@ module.exports = {
     apiKey: `${etherscanApiKey}`,
   },
 };
+
+function polygonNetworkConfig() {
+  let url = "https://polygon-mainnet.infura.io/v3/f04404676cc94e26ab8d92a7190a5336";
+  let accountPrivateKey = ""
+  return {
+    url: url,
+    accounts: [accountPrivateKey],
+  };
+}
 
 function mainnetNetworkConfig() {
   let url = "https://mainnet.infura.io/v3/";
@@ -111,9 +127,6 @@ function goerliNetworkConfig() {
 }
 
 function getEtherscanApiKey() {
-  let apiKey = "";
-  if (process.env.ETHERSCAN_API_KEY) {
-    apiKey = `${process.env.ETHERSCAN_API_KEY}`;
-  }
+  let apiKey = "3YV1DSZ7A57MB5PICSP8M7N71YPR2BGAPG";
   return apiKey;
 }
