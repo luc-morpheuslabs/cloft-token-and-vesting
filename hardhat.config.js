@@ -82,7 +82,7 @@ module.exports = {
 };
 
 function polygonNetworkConfig() {
-  let url = "https://polygon-mainnet.infura.io/v3/f04404676cc94e26ab8d92a7190a5336";
+  let url = "";
   let accountPrivateKey = ""
   return {
     url: url,
